@@ -3,6 +3,8 @@
 # container-registry.admin - для создания реестра и назначения прав
 # vpc.publicAdmin - для создания VPC-сети и подсети
 # vpc.privateAdmin - для создания VPC-сети и подсети
+# vpc.user
+# vpc.securityGroups.admin - для создания security group
 # compute.admin - для создания группы ВМ
 
 
@@ -101,10 +103,17 @@ resource "yandex_compute_instance_group" "ig" {
   }
 
   instance_template {
-    platform_id = "standard-v3"
+    platform_id        = "standard-v3"
+    service_account_id = yandex_iam_service_account.sa_ci_ig.id
+
     resources {
-      cores  = 2
-      memory = 2
+      cores         = 2
+      memory        = 2
+      core_fraction = 20
+    }
+
+    scheduling_policy {
+      preemptible = true # прерываемые ВМ
     }
 
     boot_disk {
@@ -123,20 +132,26 @@ resource "yandex_compute_instance_group" "ig" {
 
     # Декларация контейнера — JSON строкой
     metadata = {
+      "ssh-keys" = "ubuntu:ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEIwAhe9IhThZ8Ed/bZ6h/3CPfX4hhh3DppnRFCadA6L slava.butyrkin@gmail.com"
       "docker-container-declaration" = jsonencode({
         spec = {
           containers = [{
-            name = "app"
-            url  = "cr.yandex/${data.yandex_container_registry.cr.id}/hw06-app:1.0"
+            name  = "app"
+            image = "cr.yandex/${data.yandex_container_registry.cr.id}/hw06-app:1.0"
             # если нужно — command/args/env
             ports = [{ name = "http", containerPort = 8080 }]
-            env   = [{ name = "PORT", value = "8080" }]
+            env = [
+              { name = "PORT", value = "8080" },
+              { name = "HOST", value = "0.0.0.0" }
+            ]
           }]
           restartPolicy = "Always"
         }
       })
     }
   }
+
+
 
   # Минимальный масштаб
   scale_policy {
@@ -182,7 +197,7 @@ resource "yandex_lb_network_load_balancer" "nlb" {
   attached_target_group {
     target_group_id = yandex_compute_instance_group.ig.load_balancer[0].target_group_id
     healthcheck {
-      name = "hc"
+      name = "hc-http-8080" # >=3 символов, латиница/цифры/дефисы, начинается с буквы
       http_options {
         port = 8080
         path = "/health"
@@ -202,31 +217,42 @@ output "nlb_external_ips" {
   ])
 }
 
-# ---- Security Group для трафика через NLB ----
+
+
+# ---- Security Group для трафика приложения и SSH ----
 resource "yandex_vpc_security_group" "sg_app" {
   name       = "sg-cs-demo"
   network_id = yandex_vpc_network.net.id
   labels     = { env = "hw" }
 
-  # Разрешаем вход на порт приложения (8080) снаружи через NLB
+  # Приложение на 8080 (доступ из Интернета/NLB и хелсчеки)
   ingress {
     protocol       = "TCP"
-    description    = "App HTTP from Internet via NLB"
+    description    = "App HTTP (8080)"
     v4_cidr_blocks = ["0.0.0.0/0"]
     port           = 8080
   }
 
-  # (опционально) Пинг для отладки
+  # SSH: только с твоего IP
+  ingress {
+    protocol       = "TCP"
+    description    = "SSH from my_ip"
+    v4_cidr_blocks = [var.my_ip]
+    port           = 22
+  }
+
+  # ICMP для отладки (ping)
   ingress {
     protocol       = "ICMP"
     description    = "ICMP (ping)"
     v4_cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Исходящий — в Интернет (обновления, pull образов и т.п.)
+  # Исходящий трафик во внешний мир (pull образов, апдейты и т.п.)
   egress {
     protocol       = "ANY"
     description    = "Egress to Internet"
     v4_cidr_blocks = ["0.0.0.0/0"]
   }
 }
+
