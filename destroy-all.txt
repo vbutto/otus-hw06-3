@@ -1,0 +1,13 @@
+terraform destroy -target yandex_lb_network_load_balancer.nlb -auto-approve
+terraform destroy -target yandex_compute_instance_group.ig -auto-approve
+terraform destroy -target yandex_vpc_security_group.sg_app -auto-approve
+terraform destroy -target yandex_resourcemanager_folder_iam_member.sa_ci_ig_lb_editor -auto-approve
+terraform destroy -target yandex_resourcemanager_folder_iam_member.sa_ci_ig_compute_editor -auto-approve
+terraform destroy -target yandex_resourcemanager_folder_iam_member.sa_ci_ig_vpc_user -auto-approve
+terraform destroy -target yandex_resourcemanager_folder_iam_member.sa_ci_ig_editor -auto-approve
+terraform destroy -target yandex_container_registry_iam_binding.ig_puller -auto-approve
+terraform destroy -target yandex_container_registry_iam_binding.pusher -auto-approve
+terraform destroy -target yandex_iam_service_account.sa_ci_ig -auto-approve
+terraform destroy -target yandex_iam_service_account.sa_ci -auto-approve
+terraform destroy -target yandex_vpc_subnet.sn_a -auto-approve
+terraform destroy -target yandex_vpc_network.net -auto-approve
